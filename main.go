@@ -1,8 +1,10 @@
 package main
 
 import (
+	"flag"
 	"net/http"
-
+	"os"
+	
 	"github.com/gin-gonic/gin"
 )
 
@@ -13,6 +15,10 @@ type album struct {
 	Artist string  `json:"artist"`
 	Price  float64 `json:"price"`
 }
+
+var (
+	portNum = flag.String("p", "8080", "Port number where server will listen")
+)
 
 // Album sliced to seed record album data
 var albums = []album{
@@ -51,10 +57,28 @@ func getAlbumByID(c *gin.Context) {
 }
 
 func main() {
+	flag.Parse()
+
+	password := os.Getenv("MYAPI_PASSWORD")
+	if password != "pass" {
+		os.Exit(1)
+	}
+
 	router := gin.Default()
 	router.GET("/albums", getAlbums)
 	router.POST("/albums", postAlbums)
 	router.GET("/abums/:id", getAlbumByID)
 
-	router.Run()
+	host := os.Getenv("MYAPI_HOST")
+	if len(host) == 0 {
+		host = "0.0.0.0"
+	}
+	port := os.Getenv("MYAPI_PORT")
+	if len(port) == 0 {
+		port = *portNum
+		println("port " + *portNum)
+	}
+
+	//Finally, lets run
+	router.Run(host + ":" + port)
 }
