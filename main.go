@@ -1,84 +1,89 @@
 package main
 
 import (
-	"flag"
+	"database/sql"
+	"fmt"
+	"log"
 	"net/http"
 	"os"
-	
-	"github.com/gin-gonic/gin"
-)
 
-// Album represents data about a record album.
-type album struct {
-	ID     string  `json:"id"`
-	Title  string  `json:"title"`
-	Artist string  `json:"artist"`
-	Price  float64 `json:"price"`
-}
+	"golang.org/x/oauth2"
+	"golang.org/x/oauth2/google"
+
+	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
+	_ "github.com/lib/pq"
+)
 
 var (
-	portNum = flag.String("p", "8080", "Port number where server will listen")
+	oauthConfig *oauth2.Config
+	db          *sql.DB
 )
 
-// Album sliced to seed record album data
-var albums = []album{
-	{ID: "1", Title: "After Hours", Artist: "The Weeknd", Price: 42.99},
-	{ID: "2", Title: "House of Balloons", Artist: "The Weeknd", Price: 32.99},
-	{ID: "3", Title: "Heros and Villains", Artist: "Metro Boomin", Price: 25.99},
-}
-
-func getAlbums(c *gin.Context) {
-	c.IndentedJSON(http.StatusOK, albums)
-}
-
-// Lets you POST movies in the form of a JSON request
-func postAlbums(c *gin.Context) {
-	var newAlbum album
-	// Call BindJSON to bind the received JSON to newAlbum
-
-	if err := c.BindJSON(&newAlbum); err != nil {
-		return
-	}
-
-	albums = append(albums, newAlbum)
-	c.IndentedJSON(http.StatusCreated, newAlbum)
-}
-
-func getAlbumByID(c *gin.Context) {
-	id := c.Param("id")
-
-	for _, a := range albums {
-		if a.ID == id {
-			c.IndentedJSON(http.StatusOK, a)
-			return
-		}
-	}
-	c.IndentedJSON(http.StatusNotFound, gin.H{"message": "album not found"})
-}
-
 func main() {
-	flag.Parse()
+	var err error
 
-	password := os.Getenv("MYAPI_PASSWORD")
-	if password != "pass" {
-		os.Exit(1)
+	databaseURL := os.Getenv("DATABASE_URL")
+	if databaseURL == "" {
+		// Use localhost as the default database URL if DATABASE_URL environment variable is not set
+		databaseURL = "postgres://jaikash12:jaikash12@localhost/ginauth?sslmode=disable"
 	}
 
-	router := gin.Default()
-	router.GET("/albums", getAlbums)
-	router.POST("/albums", postAlbums)
-	router.GET("/abums/:id", getAlbumByID)
-
-	host := os.Getenv("MYAPI_HOST")
-	if len(host) == 0 {
-		host = "0.0.0.0"
+	// Database connection
+	db, err = sql.Open("postgres", databaseURL)
+	if err != nil {
+		log.Fatal("Failed to connect to the database: ", err)
 	}
-	port := os.Getenv("MYAPI_PORT")
-	if len(port) == 0 {
-		port = *portNum
-		println("port " + *portNum)
+	defer db.Close()
+
+	r := gin.Default()
+
+	// User details API endpoints
+	r.POST("/users", createUser)
+	r.GET("/users/:id", getUser)
+	r.PUT("/users/:id", updateUser)
+	r.DELETE("/users/:id", deleteUser)
+
+	// Account operations API endpoints
+	r.GET("/accounts/:id", getAccount)
+	r.POST("/accounts/:id/pay", payBill)
+	r.GET("/accounts/:id/due", getDueDate)
+	r.GET("/accounts/:id/score", getCreditScore)
+
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "9999"
+	}
+	fmt.Println("Server is running on port:", port)
+	if err := http.ListenAndServe(":"+port, r); err != nil {
+		log.Fatal("Failed to start server: ", err)
+	}
+}
+
+func init() {
+	// Load environment variables from the cred.env file
+	err := godotenv.Load("cred.env")
+	if err != nil {
+		log.Fatal("Error loading cred.env file: ", err)
 	}
 
-	//Finally, lets run
-	router.Run(host + ":" + port)
+	// Read the environment variables for CLIENT_ID and CLIENT_SECRET
+	clientID := os.Getenv("CLIENT_ID")
+	if clientID == "" {
+		log.Fatal("CLIENT_ID environment variable is not set.")
+	}
+
+	clientSecret := os.Getenv("CLIENT_SECRET")
+	if clientSecret == "" {
+		log.Fatal("CLIENT_SECRET environment variable is not set.")
+	}
+
+	// Create the OAuth2 config using the environment variables
+	oauthConfig = &oauth2.Config{
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		RedirectURL:  "http://localhost:9999/auth/google/callback",
+		Scopes:       []string{"profile", "email"},
+		Endpoint:     google.Endpoint,
+	}
 }
